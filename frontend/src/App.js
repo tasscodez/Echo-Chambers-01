@@ -1,53 +1,60 @@
-import { useEffect } from "react";
-import "./App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import axios from "axios";
-
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
-
-const Home = () => {
-  const helloWorldApi = async () => {
-    try {
-      const response = await axios.get(`${API}/`);
-      console.log(response.data.message);
-    } catch (e) {
-      console.error(e, `errored out requesting / api`);
-    }
-  };
-
-  useEffect(() => {
-    helloWorldApi();
-  }, []);
-
-  return (
-    <div>
-      <header className="App-header">
-        <a
-          className="App-link"
-          href="https://emergent.sh"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img src="https://avatars.githubusercontent.com/in/1201222?s=120&u=2686cf91179bbafbc7a71bfbc43004cf9ae1acea&v=4" />
-        </a>
-        <p className="mt-5">Building something incredible ~!</p>
-      </header>
-    </div>
-  );
-};
+import React, { useState, useEffect } from 'react';
+import './App.css';
+import Game from './components/Game';
+import LoadingScreen from './components/LoadingScreen';
+import { GameProvider } from './contexts/GameContext';
 
 function App() {
+  const [isLoading, setIsLoading] = useState(true);
+  const [playerName, setPlayerName] = useState('');
+
+  useEffect(() => {
+    // Simulate loading time
+    const timer = setTimeout(() => {
+      setIsLoading(false);
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  if (isLoading) {
+    return <LoadingScreen />;
+  }
+
+  if (!playerName) {
+    return (
+      <div className="name-input-screen">
+        <div className="castle-bg">
+          <div className="name-input-container">
+            <h1 className="game-title">Echo Chambers</h1>
+            <p className="game-subtitle">Enter your name to begin your journey</p>
+            <input
+              type="text"
+              placeholder="Your name..."
+              value={playerName}
+              onChange={(e) => setPlayerName(e.target.value)}
+              className="name-input"
+              onKeyPress={(e) => e.key === 'Enter' && playerName.trim() && setPlayerName(playerName.trim())}
+            />
+            <button
+              onClick={() => playerName.trim() && setPlayerName(playerName.trim())}
+              className="start-button"
+              disabled={!playerName.trim()}
+            >
+              Enter the Castle
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="App">
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Home />}>
-            <Route index element={<Home />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
-    </div>
+    <GameProvider playerName={playerName}>
+      <div className="App">
+        <Game />
+      </div>
+    </GameProvider>
   );
 }
 
