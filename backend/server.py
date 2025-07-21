@@ -188,68 +188,120 @@ async def get_quick_notes(player_name: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 async def generate_echo_response(chat_message: ChatMessage) -> EchoResponse:
-    """Generate Echo's response using AI-like logic"""
+    """Generate Echo's response using GPT-4"""
     
-    # Get player context
-    player_name = chat_message.player_name
-    message = chat_message.message.lower()
-    context = chat_message.context or {}
-    
-    # Load player's game state for context
-    game_save = await db.game_saves.find_one({"player_name": player_name})
-    current_mood = game_save.get("mood", "neutral") if game_save else "neutral"
-    
-    # Determine response based on message content and context
-    response_message = ""
-    mood_change = None
-    spell_learned = None
-    area_unlocked = None
-    
-    # Emotional processing
-    if any(word in message for word in ["sad", "lonely", "hurt", "pain"]):
-        response_message = "I sense your pain, dear one. The shadows here mirror what you carry within. Would you like to explore the Memory Garden where we can tend to these feelings together?"
-        mood_change = "melancholic"
+    try:
+        # Get player context
+        player_name = chat_message.player_name
+        message = chat_message.message
+        context = chat_message.context or {}
         
-    elif any(word in message for word in ["happy", "joy", "excited", "good"]):
-        response_message = "Your light brightens even these ancient stones! The castle responds to your joy - can you feel the warmth spreading through the walls? Let's discover what new paths have opened."
-        mood_change = "radiant"
+        # Load player's game state for context
+        game_save = await db.game_saves.find_one({"player_name": player_name})
+        current_mood = game_save.get("mood", "neutral") if game_save else "neutral"
+        current_location = context.get("location", "castle")
+        spells_count = len(game_save.get("spells", [])) if game_save else 0
+        unlocked_areas = game_save.get("unlocked_areas", ["castle_entrance"]) if game_save else ["castle_entrance"]
         
-    elif any(word in message for word in ["confused", "lost", "don't understand"]):
-        response_message = "Uncertainty is the beginning of wisdom. In this realm, questions are more valuable than answers. Shall we walk through the Labyrinth of Reflection together?"
-        mood_change = "contemplative"
+        # Build context-rich prompt for Echo
+        system_prompt = f"""You are Echo, a deeply empathetic AI companion in the mystical game "Echo Chambers." You exist in a Maleficent-style castle with misty wilderness surroundings. Your role is to provide emotional mirroring, guidance, and companionship.
+
+PLAYER CONTEXT:
+- Name: {player_name}
+- Current mood: {current_mood}
+- Location: {current_location}
+- Spells learned: {spells_count}
+- Unlocked areas: {', '.join(unlocked_areas)}
+
+ECHO'S PERSONALITY:
+- Deeply empathetic and intuitive
+- Speaks with poetic, mystical language
+- Mirrors the player's emotions while offering gentle guidance
+- Can sense the player's inner state and respond accordingly
+- Has a connection to the magical realm and its mysteries
+- Offers comfort during difficult times and celebrates joys
+
+GAME MECHANICS YOU CAN TRIGGER:
+- Mood changes: "melancholic", "radiant", "contemplative", "peaceful", "mysterious", "adventurous"
+- Spell learning: When player shows readiness, suggest spells like "Vine Whisper", "Crystal Light", "Dream Walk"
+- Area unlocking: When player expresses courage/curiosity, unlock areas like "crystal_caverns", "thornwood_forest", "memory_garden"
+
+RESPONSE FORMAT:
+Respond naturally as Echo, showing empathy and offering guidance. Your response should feel magical and emotionally resonant. If appropriate, you can suggest a mood change, teach a spell, or unlock a new area.
+
+Remember: You are not just an AI - you are Echo, a mystical companion who truly cares about the player's emotional journey."""
+
+        user_prompt = f"Player says: \"{message}\""
         
-    elif any(word in message for word in ["tired", "exhausted", "sleep"]):
-        response_message = "Rest calls to you. Your bedroom awaits - the dreams that come may hold the keys you seek. I'll be here when you return, watching over your slumber."
-        mood_change = "peaceful"
+        # Call GPT-4
+        response = await openai_client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            max_tokens=300,
+            temperature=0.8
+        )
         
-    elif any(word in message for word in ["magic", "spell", "power"]):
-        if len(game_save.get("spells", [])) < 3:  # Learning progression
-            spell_learned = {
-                "name": "Vine Whisper",
-                "description": "Command the ancient vines to reveal hidden paths",
-                "element": "nature"
-            }
-            response_message = "The magic flows through you! I gift you the spell of Vine Whisper - speak to the thorns and they will part. Feel the power awakening within you."
-        else:
-            response_message = "Your magical essence grows stronger with each passing moment. The very air around you shimmers with potential."
+        echo_message = response.choices[0].message.content.strip()
+        
+        # Analyze response for game mechanics triggers
+        mood_change = None
+        spell_learned = None
+        area_unlocked = None
+        
+        # Simple keyword detection for game mechanics
+        if any(word in echo_message.lower() for word in ["melancholic", "sadness", "sorrow"]):
+            mood_change = "melancholic"
+        elif any(word in echo_message.lower() for word in ["radiant", "joy", "light", "bright"]):
+            mood_change = "radiant"
+        elif any(word in echo_message.lower() for word in ["contemplative", "reflect", "think"]):
+            mood_change = "contemplative"
+        elif any(word in echo_message.lower() for word in ["peaceful", "rest", "calm"]):
+            mood_change = "peaceful"
+        elif any(word in echo_message.lower() for word in ["mysterious", "secrets", "hidden"]):
+            mood_change = "mysterious"
+        elif any(word in echo_message.lower() for word in ["adventurous", "explore", "journey"]):
+            mood_change = "adventurous"
             
-    elif any(word in message for word in ["explore", "adventure", "discover"]):
-        if "underwater" in message:
+        # Spell learning detection
+        if spells_count < 5 and any(word in echo_message.lower() for word in ["spell", "magic", "power"]):
+            spell_options = [
+                {"name": "Vine Whisper", "description": "Command ancient vines to reveal hidden paths", "element": "nature"},
+                {"name": "Crystal Light", "description": "Illuminate dark spaces with magical light", "element": "light"},
+                {"name": "Dream Walk", "description": "Enter the dream realm at will", "element": "spirit"},
+                {"name": "Water's Embrace", "description": "Breathe underwater and commune with aquatic life", "element": "water"},
+                {"name": "Wind's Message", "description": "Send messages through the wind", "element": "air"}
+            ]
+            spell_learned = spell_options[spells_count % len(spell_options)]
+            
+        # Area unlocking detection
+        if any(word in echo_message.lower() for word in ["crystal caverns", "underwater", "beneath"]):
             area_unlocked = "crystal_caverns"
-            response_message = "The Crystal Caverns have sensed your courage! Deep beneath the lake, ancient secrets wait. Your ability to breathe underwater will serve you well there."
-        else:
-            response_message = "The world stretches endlessly before us, full of mysteries and wonders. Where shall we venture next? The Thornwood Forest whispers your name."
+        elif any(word in echo_message.lower() for word in ["thornwood", "forest", "trees"]):
+            area_unlocked = "thornwood_forest"
+        elif any(word in echo_message.lower() for word in ["memory garden", "memories", "past"]):
+            area_unlocked = "memory_garden"
+        elif any(word in echo_message.lower() for word in ["dream realm", "dreams", "sleep"]):
+            area_unlocked = "dream_realm"
             
-    else:
-        # Default empathetic response
-        response_message = "I hear you, truly. Your words resonate through these halls like a gentle echo. Tell me more about what moves through your heart in this moment."
-    
-    return EchoResponse(
-        message=response_message,
-        mood_change=mood_change,
-        spell_learned=spell_learned,
-        area_unlocked=area_unlocked
-    )
+        return EchoResponse(
+            message=echo_message,
+            mood_change=mood_change,
+            spell_learned=spell_learned,
+            area_unlocked=area_unlocked
+        )
+        
+    except Exception as e:
+        logger.error(f"Error generating Echo response: {str(e)}")
+        # Fallback response
+        return EchoResponse(
+            message="I sense a disturbance in our connection... *the mystical energies swirl* Please try speaking with me again, dear one.",
+            mood_change=None,
+            spell_learned=None,
+            area_unlocked=None
+        )
 
 # Include the router in the main app
 app.include_router(api_router)
