@@ -12,6 +12,7 @@ from datetime import datetime
 import json
 import asyncio
 import aiohttp
+from openai import AsyncOpenAI
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
